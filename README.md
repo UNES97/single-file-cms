@@ -71,23 +71,6 @@ curl -O https://raw.githubusercontent.com/your-repo/cms.php
 3. **Configure Languages**: Set up multi-language support if needed
 4. **API Access**: Start using the REST API for external integrations
 
-## 📱 Screenshots
-
-### Setup Wizard
-Beautiful, guided setup process with progress indicators.
-
-### Admin Dashboard
-Clean, intuitive interface for content management.
-
-### Content Editor
-Rich WYSIWYG editor with media linking and formatting tools.
-
-### Multi-Language Interface
-Tabbed translation interface for managing content in multiple languages.
-
-### API Documentation
-Built-in, interactive API documentation with live examples.
-
 ## 🔧 Usage Examples
 
 ### Basic Content Management
