@@ -1968,6 +1968,8 @@ class ModernCMS {
             <title>CMS Dashboard</title>
             <script src="https://cdn.tailwindcss.com"></script>
             <link href="https://fonts.googleapis.com/css2?family=Ubuntu:wght@300;400;500;700&display=swap" rel="stylesheet">
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
             <script>
                 tailwind.config = {
                     theme: {
@@ -2658,6 +2660,27 @@ class ModernCMS {
                     console.error('Error updating preview:', error);
                 }
             }
+            
+            // Initialize Flatpickr for date and datetime fields
+            document.addEventListener('DOMContentLoaded', function() {
+                // Initialize date fields
+                flatpickr('.flatpickr-date', {
+                    dateFormat: 'Y-m-d',
+                    allowInput: true,
+                    altInput: true,
+                    altFormat: 'F j, Y'
+                });
+                
+                // Initialize datetime fields
+                flatpickr('.flatpickr-datetime', {
+                    enableTime: true,
+                    dateFormat: 'Y-m-d H:i',
+                    allowInput: true,
+                    altInput: true,
+                    altFormat: 'F j, Y at H:i',
+                    time_24hr: true
+                });
+            });
             </script>
         </body>
         </html>
@@ -3219,7 +3242,12 @@ class ModernCMS {
                                 </div>
                                 
                                 <?php foreach ($structure as $field): ?>
-                                    <?php if ($field['name'] !== 'id' && !isset($mediaFields[$field['name']]) && !isset($this->getForeignKeyFields($table)[$field['name']])): ?>
+                                    <?php 
+                                    $originalFieldType = $this->getOriginalFieldType($table, $field['name']);
+                                    $fieldTypeToCheck = $originalFieldType ?: strtolower($field['type']);
+                                    $isDateField = in_array($fieldTypeToCheck, ['date', 'datetime']);
+                                    ?>
+                                    <?php if ($field['name'] !== 'id' && !isset($mediaFields[$field['name']]) && !isset($this->getForeignKeyFields($table)[$field['name']]) && !$isDateField): ?>
                                         <?php 
                                         $translatedValue = $this->getTranslation($table, $record['id'], $field['name'], $lang['code']);
                                         $originalValue = $record[$field['name']] ?? '';
@@ -4758,12 +4786,12 @@ $translations = json_decode(file_get_contents($url), true);</code></pre>
                 break;
                 
             case 'date':
-                echo "<input type='date' id='{$name}' name='{$name}' value='{$value}' class='{$baseClasses}'>";
+                echo "<input type='text' id='{$name}' name='{$name}' value='{$value}' class='{$baseClasses} flatpickr-date' placeholder='Select date...'>";
                 break;
                 
             case 'datetime':
-                $datetimeValue = $value ? date('Y-m-d\TH:i', strtotime($value)) : '';
-                echo "<input type='datetime-local' id='{$name}' name='{$name}' value='{$datetimeValue}' class='{$baseClasses}'>";
+                $datetimeValue = $value ? date('Y-m-d H:i', strtotime($value)) : '';
+                echo "<input type='text' id='{$name}' name='{$name}' value='{$datetimeValue}' class='{$baseClasses} flatpickr-datetime' placeholder='Select date and time...'>";
                 break;
                 
             case 'boolean':
