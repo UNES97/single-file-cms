@@ -120,6 +120,24 @@ class ModernCMS {
                     error_log("Language setup warning: " . $e->getMessage());
                 }
             }
+            
+            // Add is_unique column to table_field_meta if it doesn't exist
+            try {
+                $stmt = $this->db->query("PRAGMA table_info(table_field_meta)");
+                $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $hasUniqueColumn = false;
+                foreach ($columns as $column) {
+                    if ($column['name'] === 'is_unique') {
+                        $hasUniqueColumn = true;
+                        break;
+                    }
+                }
+                if (!$hasUniqueColumn) {
+                    $this->db->exec("ALTER TABLE table_field_meta ADD COLUMN is_unique BOOLEAN DEFAULT 0");
+                }
+            } catch (PDOException $e) {
+                error_log("Failed to add is_unique column: " . $e->getMessage());
+            }
         } catch (PDOException $e) {
             // Silently fail - migrations are optional for compatibility
             error_log("Migration failed: " . $e->getMessage());
@@ -179,7 +197,8 @@ class ModernCMS {
                 media_type TEXT DEFAULT NULL,
                 is_foreign_key BOOLEAN DEFAULT 0,
                 foreign_table TEXT DEFAULT NULL,
-                foreign_display TEXT DEFAULT NULL
+                foreign_display TEXT DEFAULT NULL,
+                is_unique BOOLEAN DEFAULT 0
             )",
             
             // Languages table for multi-language support
@@ -251,8 +270,10 @@ class ModernCMS {
                     $foreignDisplay = $field['foreign_display'] ?? null;
                 }
                 
-                $stmt = $this->db->prepare("INSERT INTO table_field_meta (table_name, field_name, field_type, is_media_field, media_type, is_foreign_key, foreign_table, foreign_display) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt->execute([$tableName, $fieldName, $field['type'], $isMediaField ? 1 : 0, $mediaType, $isForeignKey ? 1 : 0, $foreignTable, $foreignDisplay]);
+                $isUnique = isset($field['is_unique']) ? ($field['is_unique'] ? 1 : 0) : 0;
+                
+                $stmt = $this->db->prepare("INSERT INTO table_field_meta (table_name, field_name, field_type, is_media_field, media_type, is_foreign_key, foreign_table, foreign_display, is_unique) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt->execute([$tableName, $fieldName, $field['type'], $isMediaField ? 1 : 0, $mediaType, $isForeignKey ? 1 : 0, $foreignTable, $foreignDisplay, $isUnique]);
             }
         }
     }
@@ -1162,8 +1183,47 @@ class ModernCMS {
         return null;
     }
     
+    /**
+     * Check if any unique field constraints would be violated
+     */
+    private function checkUniqueFields($table, $data, $excludeId = null) {
+        // Get unique fields for this table
+        $stmt = $this->db->prepare("SELECT field_name FROM table_field_meta WHERE table_name = ? AND is_unique = 1");
+        $stmt->execute([$table]);
+        $uniqueFields = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        
+        foreach ($uniqueFields as $fieldName) {
+            if (isset($data[$fieldName]) && $data[$fieldName] !== '') {
+                // Check if this value already exists
+                $sql = "SELECT id FROM `{$table}` WHERE `{$fieldName}` = ?";
+                $params = [$data[$fieldName]];
+                
+                // Exclude current record when updating
+                if ($excludeId !== null) {
+                    $sql .= " AND id != ?";
+                    $params[] = $excludeId;
+                }
+                
+                $stmt = $this->db->prepare($sql);
+                $stmt->execute($params);
+                
+                if ($stmt->fetch()) {
+                    return $fieldName; // Return the field name that violated uniqueness
+                }
+            }
+        }
+        
+        return false; // No violations found
+    }
+    
     private function createRecord($table, $data) {
         unset($data['action'], $data['table']);
+        
+        // Check for unique field violations
+        $uniqueViolation = $this->checkUniqueFields($table, $data);
+        if ($uniqueViolation) {
+            return ['error' => "Field '{$uniqueViolation}' must be unique. This value already exists."];
+        }
         
         // Handle media fields
         $mediaFields = $this->getMediaFields($table);
@@ -1191,6 +1251,12 @@ class ModernCMS {
     private function updateRecord($table, $data) {
         $id = $data['id'];
         unset($data['action'], $data['table'], $data['id']);
+        
+        // Check for unique field violations (excluding current record)
+        $uniqueViolation = $this->checkUniqueFields($table, $data, $id);
+        if ($uniqueViolation) {
+            return ['error' => "Field '{$uniqueViolation}' must be unique. This value already exists."];
+        }
         
         // Handle media fields
         $mediaFields = $this->getMediaFields($table);
@@ -1457,11 +1523,11 @@ class ModernCMS {
                                     <div class="fields-container space-y-3">
                                         <div class="field-row border border-gray-200 rounded-lg p-3 space-y-3">
                                             <div class="grid grid-cols-12 gap-2 items-end">
-                                                <div class="col-span-5">
+                                                <div class="col-span-4">
                                                     <label class="block text-xs text-gray-600 mb-1">Field Name</label>
                                                     <input type="text" placeholder="e.g., title, content" class="field-name w-full px-3 py-2 border border-gray-300 rounded">
                                                 </div>
-                                                <div class="col-span-4">
+                                                <div class="col-span-3">
                                                     <label class="block text-xs text-gray-600 mb-1">Field Type</label>
                                                     <select class="field-type w-full px-3 py-2 border border-gray-300 rounded" onchange="toggleForeignKeyConfig(this)">
                                                         <option value="text">Text (short)</option>
@@ -1475,6 +1541,12 @@ class ModernCMS {
                                                         <option value="media_multiple">Media (Multiple Files)</option>
                                                         <option value="foreign_key">Foreign Key (Link to Table)</option>
                                                     </select>
+                                                </div>
+                                                <div class="col-span-2">
+                                                    <label class="block text-xs text-gray-600 mb-1">Unique</label>
+                                                    <div class="flex items-center justify-center h-10">
+                                                        <input type="checkbox" class="field-unique w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
+                                                    </div>
                                                 </div>
                                                 <div class="col-span-3">
                                                     <button type="button" onclick="removeField(this.closest('.field-row'))"
@@ -1702,11 +1774,11 @@ class ModernCMS {
                     fieldRow.className = 'field-row border border-gray-200 rounded-lg p-3 space-y-3';
                     fieldRow.innerHTML = `
                         <div class="grid grid-cols-12 gap-2 items-end">
-                            <div class="col-span-5">
+                            <div class="col-span-4">
                                 <label class="block text-xs text-gray-600 mb-1">Field Name</label>
                                 <input type="text" placeholder="e.g., title, content" class="field-name w-full px-3 py-2 border border-gray-300 rounded">
                             </div>
-                            <div class="col-span-4">
+                            <div class="col-span-3">
                                 <label class="block text-xs text-gray-600 mb-1">Field Type</label>
                                 <select class="field-type w-full px-3 py-2 border border-gray-300 rounded" onchange="toggleForeignKeyConfig(this)">
                                     <option value="text">Text (short)</option>
@@ -1720,6 +1792,12 @@ class ModernCMS {
                                     <option value="media_multiple">Media (Multiple Files)</option>
                                     <option value="foreign_key">Foreign Key (Link to Table)</option>
                                 </select>
+                            </div>
+                            <div class="col-span-2">
+                                <label class="block text-xs text-gray-600 mb-1">Unique</label>
+                                <div class="flex items-center justify-center h-10">
+                                    <input type="checkbox" class="field-unique w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
+                                </div>
                             </div>
                             <div class="col-span-3">
                                 <button type="button" onclick="removeField(this.closest('.field-row'))"
@@ -1785,11 +1863,11 @@ class ModernCMS {
                         
                         <div class="fields-container space-y-3">
                             <div class="field-row grid grid-cols-12 gap-2 items-end">
-                                <div class="col-span-5">
+                                <div class="col-span-4">
                                     <label class="block text-xs text-gray-600 mb-1">Field Name</label>
                                     <input type="text" placeholder="e.g., title, content" class="field-name w-full px-3 py-2 border border-gray-300 rounded">
                                 </div>
-                                <div class="col-span-4">
+                                <div class="col-span-3">
                                     <label class="block text-xs text-gray-600 mb-1">Field Type</label>
                                     <select class="field-type w-full px-3 py-2 border border-gray-300 rounded">
                                         <option value="text">Text (short)</option>
@@ -1803,6 +1881,12 @@ class ModernCMS {
                                         <option value="media_multiple">Media (Multiple Files)</option>
                                         <option value="foreign_key">Foreign Key (Link to Table)</option>
                                     </select>
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="block text-xs text-gray-600 mb-1">Unique</label>
+                                    <div class="flex items-center justify-center h-10">
+                                        <input type="checkbox" class="field-unique w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
+                                    </div>
                                 </div>
                                 <div class="col-span-3">
                                     <button type="button" onclick="removeField(this.closest('.field-row'))"
@@ -1834,9 +1918,10 @@ class ModernCMS {
                             fieldRows.forEach(row => {
                                 const fieldName = row.querySelector('.field-name').value.trim();
                                 const fieldType = row.querySelector('.field-type').value;
+                                const isUnique = row.querySelector('.field-unique').checked;
                                 
                                 if (fieldName) {
-                                    const field = { name: fieldName, type: fieldType };
+                                    const field = { name: fieldName, type: fieldType, is_unique: isUnique };
                                     
                                     // Add foreign key configuration if it's a foreign key field
                                     if (fieldType === 'foreign_key') {
@@ -3245,9 +3330,12 @@ class ModernCMS {
                                     <?php 
                                     $originalFieldType = $this->getOriginalFieldType($table, $field['name']);
                                     $fieldTypeToCheck = $originalFieldType ?: strtolower($field['type']);
-                                    $isDateField = in_array($fieldTypeToCheck, ['date', 'datetime']);
+                                    
+                                    // Only allow translation for text-based fields
+                                    $translatableTypes = ['text', 'textarea', 'email', 'url'];
+                                    $isTranslatable = in_array($fieldTypeToCheck, $translatableTypes);
                                     ?>
-                                    <?php if ($field['name'] !== 'id' && !isset($mediaFields[$field['name']]) && !isset($this->getForeignKeyFields($table)[$field['name']]) && !$isDateField): ?>
+                                    <?php if ($field['name'] !== 'id' && !isset($mediaFields[$field['name']]) && !isset($this->getForeignKeyFields($table)[$field['name']]) && $isTranslatable): ?>
                                         <?php 
                                         $translatedValue = $this->getTranslation($table, $record['id'], $field['name'], $lang['code']);
                                         $originalValue = $record[$field['name']] ?? '';
@@ -3753,6 +3841,7 @@ $translations = json_decode(file_get_contents($url), true);</code></pre>
         $fields = [];
         $fieldNames = $fieldsData['name'] ?? [];
         $fieldTypes = $fieldsData['type'] ?? [];
+        $fieldUnique = $fieldsData['unique'] ?? [];
         
         // Validate we have field data
         if (empty($fieldNames) || empty($fieldTypes) || !is_array($fieldNames) || !is_array($fieldTypes)) {
@@ -3763,7 +3852,8 @@ $translations = json_decode(file_get_contents($url), true);</code></pre>
             if (!empty($fieldNames[$i]) && !empty($fieldTypes[$i])) {
                 $fields[] = [
                     'name' => trim($fieldNames[$i]),
-                    'type' => $fieldTypes[$i]
+                    'type' => $fieldTypes[$i],
+                    'is_unique' => isset($fieldUnique[$i]) && $fieldUnique[$i] === '1'
                 ];
             }
         }
@@ -3815,8 +3905,8 @@ $translations = json_decode(file_get_contents($url), true);</code></pre>
             $mediaType = $isMediaField ? ($fieldType === 'media_single' ? 'single' : 'multiple') : null;
             $isForeignKey = $fieldType === 'foreign_key';
             
-            $stmt = $this->db->prepare("INSERT INTO table_field_meta (table_name, field_name, field_type, is_media_field, media_type, is_foreign_key) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$table, $fieldName, $fieldType, $isMediaField ? 1 : 0, $mediaType, $isForeignKey ? 1 : 0]);
+            $stmt = $this->db->prepare("INSERT INTO table_field_meta (table_name, field_name, field_type, is_media_field, media_type, is_foreign_key, is_unique) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$table, $fieldName, $fieldType, $isMediaField ? 1 : 0, $mediaType, $isForeignKey ? 1 : 0, 0]);
             
             return ['success' => "Field '{$fieldName}' added successfully!"];
         } catch (PDOException $e) {
@@ -4490,15 +4580,17 @@ $translations = json_decode(file_get_contents($url), true);</code></pre>
             addFieldToContainer(container);
         });
 
-        function addFieldToContainer(container, name = '', type = 'text') {
+        function addFieldToContainer(container, name = '', type = 'text', isUnique = false) {
             const fieldDiv = document.createElement('div');
-            fieldDiv.className = 'field-row grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-white border border-gray-200 rounded-lg';
+            fieldDiv.className = 'field-row grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-white border border-gray-200 rounded-lg';
             fieldDiv.innerHTML = `
                 <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Field Name</label>
                     <input type="text" name="fields[name][]" value="${name}" placeholder="Field name (e.g., title)" required
                            class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                 </div>
                 <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Field Type</label>
                     <select name="fields[type][]" class="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent">
                         <option value="text" ${type === 'text' ? 'selected' : ''}>Text</option>
                         <option value="textarea" ${type === 'textarea' ? 'selected' : ''}>Textarea (Long Text)</option>
@@ -4512,6 +4604,13 @@ $translations = json_decode(file_get_contents($url), true);</code></pre>
                         <option value="media_multiple" ${type === 'media_multiple' ? 'selected' : ''}>Media (Multiple Files)</option>
                         <option value="foreign_key" ${type === 'foreign_key' ? 'selected' : ''}>Foreign Key</option>
                     </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Unique</label>
+                    <div class="flex items-center justify-center h-10">
+                        <input type="checkbox" name="fields[unique][]" value="1" ${isUnique ? 'checked' : ''}
+                               class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500">
+                    </div>
                 </div>
                 <div class="flex items-center">
                     <button type="button" onclick="removeField(this)" 
