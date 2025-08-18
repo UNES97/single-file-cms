@@ -1178,6 +1178,14 @@ class ModernCMS {
                 return $this->toggleLanguage($_POST);
             case 'set_default_language':
                 return $this->setDefaultLanguage($_POST['language_code']);
+            case 'backup_database':
+                return $this->backupDatabase();
+            case 'backup_media':
+                return $this->backupMedia();
+            case 'restore_database':
+                return $this->restoreDatabase($_FILES['backup_file']);
+            case 'restore_media':
+                return $this->restoreMedia($_FILES['backup_file']);
         }
         
         return null;
@@ -2152,6 +2160,13 @@ class ModernCMS {
                                 <span>Create Table</span>
                             </a>
                             
+                            <a href="?page=backup" class="flex items-center px-4 py-3 rounded-lg hover:bg-gray-100 <?= ($_GET['page'] ?? '') === 'backup' ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'text-gray-700' ?>">
+                                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"/>
+                                </svg>
+                                <span>Backup</span>
+                            </a>
+                            
                             <?php foreach ($userTables as $table): ?>
                                 <a href="?table=<?= urlencode($table) ?>" class="flex items-center px-4 py-3 rounded-lg hover:bg-gray-100 <?= $currentTable === $table ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'text-gray-700' ?>">
                                     <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2198,6 +2213,8 @@ class ModernCMS {
                         <?php $this->renderLanguageManagement(); ?>
                     <?php elseif ($currentPage === 'create-table'): ?>
                         <?php $this->renderCreateTable(); ?>
+                    <?php elseif ($currentPage === 'backup'): ?>
+                        <?php $this->renderBackupManagement(); ?>
                     <?php elseif ($currentAction === 'edit_table_structure' && $currentTable): ?>
                         <?php $this->renderEditTableStructure($currentTable); ?>
                     <?php elseif ($currentTable): ?>
@@ -5037,6 +5054,332 @@ $translations = json_decode(file_get_contents($url), true);</code></pre>
             });
         </script>
         <?php
+    }
+    
+    /**
+     * Render backup management interface
+     */
+    private function renderBackupManagement() {
+        ?>
+        <div class="space-y-6">
+            <!-- Header -->
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-200">
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">Backup & Restore</h1>
+                <p class="text-gray-600">Create backups of your database and media files, or restore from previous backups.</p>
+            </div>
+
+            <!-- Backup Section -->
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-200">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <svg class="w-6 h-6 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                    Create Backup
+                </h2>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Database Backup -->
+                    <div class="border border-gray-200 rounded-lg p-4">
+                        <h3 class="text-lg font-medium text-gray-900 mb-2 flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/>
+                            </svg>
+                            Database Backup
+                        </h3>
+                        <p class="text-gray-600 text-sm mb-4">Backup all your content, tables, and settings.</p>
+                        <form method="POST" class="inline">
+                            <input type="hidden" name="action" value="backup_database">
+                            <button type="submit" class="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium">
+                                Download Database Backup
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <!-- Media Backup -->
+                    <div class="border border-gray-200 rounded-lg p-4">
+                        <h3 class="text-lg font-medium text-gray-900 mb-2 flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                            </svg>
+                            Media Backup
+                        </h3>
+                        <p class="text-gray-600 text-sm mb-4">Backup all uploaded images and files.</p>
+                        <form method="POST" class="inline">
+                            <input type="hidden" name="action" value="backup_media">
+                            <button type="submit" class="w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium">
+                                Download Media Backup
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Restore Section -->
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-200">
+                <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                    <svg class="w-6 h-6 mr-2 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                    </svg>
+                    Restore from Backup
+                </h2>
+                
+                <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-6">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm text-yellow-700">
+                                <strong>Warning:</strong> Restoring will overwrite all current data. Make sure to backup your current data before proceeding.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Database Restore -->
+                    <div class="border border-gray-200 rounded-lg p-4">
+                        <h3 class="text-lg font-medium text-gray-900 mb-2 flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/>
+                            </svg>
+                            Restore Database
+                        </h3>
+                        <p class="text-gray-600 text-sm mb-4">Upload a database backup file to restore.</p>
+                        <form method="POST" enctype="multipart/form-data" onsubmit="return confirm('Are you sure? This will overwrite all current data!')">
+                            <input type="hidden" name="action" value="restore_database">
+                            <input type="file" name="backup_file" accept=".sqlite,.db" required 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg mb-3 text-sm">
+                            <button type="submit" class="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium">
+                                Restore Database
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <!-- Media Restore -->
+                    <div class="border border-gray-200 rounded-lg p-4">
+                        <h3 class="text-lg font-medium text-gray-900 mb-2 flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                            </svg>
+                            Restore Media
+                        </h3>
+                        <p class="text-gray-600 text-sm mb-4">Upload a media backup zip file to restore.</p>
+                        <form method="POST" enctype="multipart/form-data" onsubmit="return confirm('Are you sure? This will overwrite all current media files!')">
+                            <input type="hidden" name="action" value="restore_media">
+                            <input type="file" name="backup_file" accept=".zip" required 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg mb-3 text-sm">
+                            <button type="submit" class="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium">
+                                Restore Media
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Info -->
+            <div class="bg-gray-50 rounded-lg p-6 border border-gray-200">
+                <h3 class="text-lg font-medium text-gray-900 mb-3">System Information</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div>
+                        <span class="font-medium text-gray-700">Database File:</span>
+                        <span class="text-gray-600 ml-2"><?= DB_FILE ?></span>
+                    </div>
+                    <div>
+                        <span class="font-medium text-gray-700">Media Directory:</span>
+                        <span class="text-gray-600 ml-2"><?= MEDIA_DIR ?>/</span>
+                    </div>
+                    <div>
+                        <span class="font-medium text-gray-700">Database Size:</span>
+                        <span class="text-gray-600 ml-2"><?= file_exists(DB_FILE) ? number_format(filesize(DB_FILE) / 1024, 1) . ' KB' : 'N/A' ?></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php
+    }
+    
+    /**
+     * Backup database
+     */
+    private function backupDatabase() {
+        if (!file_exists(DB_FILE)) {
+            return ['error' => 'Database file not found'];
+        }
+        
+        $backupName = 'cms_database_backup_' . date('Y-m-d_H-i-s') . '.sqlite';
+        
+        header('Content-Type: application/octet-stream');
+        header('Content-Disposition: attachment; filename="' . $backupName . '"');
+        header('Content-Length: ' . filesize(DB_FILE));
+        
+        readfile(DB_FILE);
+        exit;
+    }
+    
+    /**
+     * Backup media files
+     */
+    private function backupMedia() {
+        if (!is_dir(MEDIA_DIR)) {
+            return ['error' => 'Media directory not found'];
+        }
+        
+        $backupName = 'cms_media_backup_' . date('Y-m-d_H-i-s') . '.zip';
+        $zipFile = tempnam(sys_get_temp_dir(), 'cms_backup');
+        
+        $zip = new ZipArchive();
+        if ($zip->open($zipFile, ZipArchive::CREATE) !== TRUE) {
+            return ['error' => 'Could not create backup archive'];
+        }
+        
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator(MEDIA_DIR, RecursiveDirectoryIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::SELF_FIRST
+        );
+        
+        foreach ($iterator as $file) {
+            if ($file->isDir()) {
+                $zip->addEmptyDir(str_replace(MEDIA_DIR . '/', '', $file . '/'));
+            } else {
+                $zip->addFile($file, str_replace(MEDIA_DIR . '/', '', $file));
+            }
+        }
+        
+        $zip->close();
+        
+        header('Content-Type: application/zip');
+        header('Content-Disposition: attachment; filename="' . $backupName . '"');
+        header('Content-Length: ' . filesize($zipFile));
+        
+        readfile($zipFile);
+        unlink($zipFile);
+        exit;
+    }
+    
+    /**
+     * Restore database from backup
+     */
+    private function restoreDatabase($file) {
+        if (!isset($file['tmp_name']) || !file_exists($file['tmp_name'])) {
+            return ['error' => 'No backup file uploaded'];
+        }
+        
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            return ['error' => 'File upload error'];
+        }
+        
+        // Validate file (basic SQLite check)
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mimeType = finfo_file($finfo, $file['tmp_name']);
+        finfo_close($finfo);
+        
+        // Create backup of current database
+        $currentBackup = DB_FILE . '.backup.' . time();
+        if (file_exists(DB_FILE)) {
+            copy(DB_FILE, $currentBackup);
+        }
+        
+        // Replace database file
+        if (move_uploaded_file($file['tmp_name'], DB_FILE)) {
+            // Test if the database is valid
+            try {
+                $testDb = new PDO('sqlite:' . DB_FILE);
+                $testDb = null; // Close connection
+                
+                // Remove old backup if restore successful
+                if (file_exists($currentBackup)) {
+                    unlink($currentBackup);
+                }
+                
+                return ['success' => 'Database restored successfully! Please refresh the page.'];
+            } catch (PDOException $e) {
+                // Restore original database if new one is invalid
+                if (file_exists($currentBackup)) {
+                    copy($currentBackup, DB_FILE);
+                    unlink($currentBackup);
+                }
+                return ['error' => 'Invalid database file. Restore aborted.'];
+            }
+        } else {
+            return ['error' => 'Failed to restore database file'];
+        }
+    }
+    
+    /**
+     * Restore media files from backup
+     */
+    private function restoreMedia($file) {
+        if (!isset($file['tmp_name']) || !file_exists($file['tmp_name'])) {
+            return ['error' => 'No backup file uploaded'];
+        }
+        
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            return ['error' => 'File upload error'];
+        }
+        
+        $zip = new ZipArchive();
+        if ($zip->open($file['tmp_name']) !== TRUE) {
+            return ['error' => 'Invalid zip file'];
+        }
+        
+        // Create backup of current media directory
+        $backupDir = MEDIA_DIR . '_backup_' . time();
+        if (is_dir(MEDIA_DIR)) {
+            rename(MEDIA_DIR, $backupDir);
+        }
+        
+        // Create new media directory
+        if (!mkdir(MEDIA_DIR, 0755, true)) {
+            // Restore original if creation failed
+            if (is_dir($backupDir)) {
+                rename($backupDir, MEDIA_DIR);
+            }
+            return ['error' => 'Failed to create media directory'];
+        }
+        
+        // Extract files
+        if ($zip->extractTo(MEDIA_DIR)) {
+            $zip->close();
+            
+            // Remove backup directory if restore successful
+            if (is_dir($backupDir)) {
+                $this->removeDirectory($backupDir);
+            }
+            
+            return ['success' => 'Media files restored successfully!'];
+        } else {
+            $zip->close();
+            
+            // Restore original directory if extraction failed
+            if (is_dir($backupDir)) {
+                if (is_dir(MEDIA_DIR)) {
+                    $this->removeDirectory(MEDIA_DIR);
+                }
+                rename($backupDir, MEDIA_DIR);
+            }
+            
+            return ['error' => 'Failed to extract media files'];
+        }
+    }
+    
+    /**
+     * Helper function to remove directory recursively
+     */
+    private function removeDirectory($dir) {
+        if (!is_dir($dir)) {
+            return false;
+        }
+        
+        $files = array_diff(scandir($dir), array('.', '..'));
+        foreach ($files as $file) {
+            $path = $dir . '/' . $file;
+            is_dir($path) ? $this->removeDirectory($path) : unlink($path);
+        }
+        
+        return rmdir($dir);
     }
 }
 
